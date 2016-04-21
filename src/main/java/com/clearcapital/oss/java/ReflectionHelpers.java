@@ -1,7 +1,10 @@
 package com.clearcapital.oss.java;
 
 import java.lang.annotation.Annotation;
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Set;
@@ -12,8 +15,11 @@ import org.reflections.scanners.SubTypesScanner;
 import org.reflections.scanners.TypeAnnotationsScanner;
 import org.reflections.util.ClasspathHelper;
 
+import com.clearcapital.oss.java.exceptions.AssertException;
 import com.clearcapital.oss.java.exceptions.DeserializingException;
+import com.clearcapital.oss.java.exceptions.ReflectionHelperSetFieldValueException;
 import com.clearcapital.oss.java.exceptions.ReflectionPathException;
+import com.google.common.collect.FluentIterable;
 import com.google.common.collect.Iterables;
 
 public class ReflectionHelpers {
@@ -141,12 +147,12 @@ public class ReflectionHelpers {
                     try {
                         key = serializer.getObject(keyString, entryClass);
                     } catch (DeserializingException e) {
-                        throw new ReflectionPathException("reflectionPath entry " + pathEntry
-                                + " could not be deserialized", e);
+                        throw new ReflectionPathException(
+                                "reflectionPath entry " + pathEntry + " could not be deserialized", e);
                     }
                 } else {
-                    throw new ReflectionPathException("reflectionPath entry " + pathEntry
-                            + " could not be deserialized");
+                    throw new ReflectionPathException(
+                            "reflectionPath entry " + pathEntry + " could not be deserialized");
                 }
 
                 if (!map.containsKey(key)) {
@@ -184,8 +190,8 @@ public class ReflectionHelpers {
      *            a String to check for map key syntax
      */
     static boolean isMapKey(final String s) {
-        return s != null && s.length() >= (MAP_KEY_OPEN.length() + MAP_KEY_CLOSE.length())
-                && s.startsWith(MAP_KEY_OPEN) && s.endsWith(MAP_KEY_CLOSE);
+        return s != null && s.length() >= (MAP_KEY_OPEN.length() + MAP_KEY_CLOSE.length()) && s.startsWith(MAP_KEY_OPEN)
+                && s.endsWith(MAP_KEY_CLOSE);
     }
 
     /**
@@ -218,8 +224,8 @@ public class ReflectionHelpers {
             return false;
         }
         try {
-            int i = Integer.parseInt(s.substring(COLLECTION_INDEX_OPEN.length(),
-                    s.length() - COLLECTION_INDEX_CLOSE.length()));
+            int i = Integer.parseInt(
+                    s.substring(COLLECTION_INDEX_OPEN.length(), s.length() - COLLECTION_INDEX_CLOSE.length()));
             return i >= 0;
         } catch (NumberFormatException e) {
             return false;
@@ -235,8 +241,8 @@ public class ReflectionHelpers {
      */
     static int getCollectionIndex(final String s) throws NumberFormatException {
         if (isCollectionIndex(s)) {
-            return Integer.parseInt(s.substring(COLLECTION_INDEX_OPEN.length(),
-                    s.length() - COLLECTION_INDEX_CLOSE.length()));
+            return Integer.parseInt(
+                    s.substring(COLLECTION_INDEX_OPEN.length(), s.length() - COLLECTION_INDEX_CLOSE.length()));
         }
         throw new NumberFormatException("Invalid collection index '" + s + "'.");
     }
@@ -287,18 +293,68 @@ public class ReflectionHelpers {
         }
     }
 
-	public static Reflections getReflections(final Collection<String> packageNames) {
-		Reflections reflections = null;
-		for (String packageName : packageNames) {
+    public static void setFieldValue(Object target, Collection<String> javaPath, Object value)
+            throws AssertException, ReflectiveOperationException {
+        String fieldName = null;
+        if (javaPath != null) {
+            fieldName = Iterables.getLast(javaPath);
+
+            // Drop final field name from path. The final field is the one we want to set with the value from row.
+            // Anything before that is an object that will have to be set in order to be able to set the final field.
+            javaPath = FluentIterable.from(javaPath).limit(javaPath.size() - 1).toList();
+            for (String pathEntry : javaPath) {
+                Object pathObject = ReflectionHelpers.getFieldValue(target, pathEntry);
+                if (pathObject == null) {
+                    // Instantiate pathObject if it's null so that we can continue down the path
+                    Class<?> fieldType = ReflectionHelpers.getFieldType(target, pathEntry);
+                    try {
+                        Constructor<?> constructor = fieldType.getConstructor();
+                        pathObject = constructor.newInstance();
+                    } catch (InstantiationException | NoSuchMethodException | SecurityException | IllegalAccessException
+                            | IllegalArgumentException | InvocationTargetException e) {
+                        throw new ReflectionHelperSetFieldValueException("Could not instantiate " + pathEntry, e);
+                    }
+                    ReflectionHelpers.setFieldValue(target, pathEntry, pathObject);
+                }
+                target = pathObject;
+            }
+        }
+
+        // fieldName could be null if javaPath was null, i.e., if this field
+        // is one that we calculate for cassandra's benefit, rather than keeping
+        // in memory when representing the row as a core-model object.
+        if (fieldName != null) {
+            Class<?> fieldType = ReflectionHelpers.getFieldType(target, fieldName);
+            AssertHelpers.notNull(fieldType, "field does not exist in model class. field:" + fieldName + " model class:"
+                    + target.getClass().getName());
+            if (fieldType.isEnum() && value instanceof String) {
+                try {
+                    Method valueOf = fieldType.getMethod("valueOf", String.class);
+                    Object enumValue = valueOf.invoke(null, value);
+                    value = enumValue;
+                } catch (NoSuchMethodException | SecurityException | IllegalAccessException | IllegalArgumentException
+                        | InvocationTargetException e) {
+                    throw new ReflectionHelperSetFieldValueException(
+                            "Could not convert field value to enum for field " + fieldName, e);
+                }
+            }
+            ReflectionHelpers.setFieldValue(target, fieldName, value);
+        }
+
+    }
+
+    public static Reflections getReflections(final Collection<String> packageNames) {
+        Reflections reflections = null;
+        for (String packageName : packageNames) {
             Reflections packageReflections = getReflections(packageName);
-			if (reflections == null) {
-				reflections = packageReflections;
-			} else {
-				reflections.merge(packageReflections);
-			}
-		}
-		return reflections;
-	}
+            if (reflections == null) {
+                reflections = packageReflections;
+            } else {
+                reflections.merge(packageReflections);
+            }
+        }
+        return reflections;
+    }
 
     public static Reflections getReflections(final String packageName) {
         Reflections packageReflections = new Reflections(ClasspathHelper.forPackage(packageName),
@@ -326,9 +382,20 @@ public class ReflectionHelpers {
         return reflections.getTypesAnnotatedWith(annotation);
     }
 
-	public static Set<Class<?>> getTypesAnnotatedWith(Collection<String> packageNames, Class<? extends Annotation> annotation) {
+    public static Set<Class<?>> getTypesAnnotatedWith(Collection<String> packageNames,
+            Class<? extends Annotation> annotation) {
         Reflections reflections = getReflections(packageNames);
         return reflections.getTypesAnnotatedWith(annotation);
-	}
+    }
+
+    public static Class<?> getFieldType(final Object object, final String name) throws AssertException {
+        AssertHelpers.notNull(object, "object must not be null");
+        Field field = getDeclaredField(object.getClass(), name);
+        if (field != null) {
+            return field.getType();
+        } else {
+            return null;
+        }
+    }
 
 }

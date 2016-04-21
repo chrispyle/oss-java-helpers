@@ -1,6 +1,6 @@
 package com.clearcapital.oss.java.exceptions;
 
-public class ReflectionPathException extends Exception {
+public class ReflectionPathException extends ReflectiveOperationException {
 
     public ReflectionPathException(String message) {
         super(message);
