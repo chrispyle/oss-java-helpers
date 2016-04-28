@@ -5,6 +5,7 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.lang.reflect.ParameterizedType;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Set;
@@ -396,6 +397,13 @@ public class ReflectionHelpers {
         } else {
             return null;
         }
+    }
+
+    static public ParameterizedType getParameterizedType(Class<?> theClass) {
+        UncheckedAssertHelpers.isTrue(theClass.getGenericSuperclass() instanceof ParameterizedType,
+                "theClass.getGenericSuperclass() instanceof ParameterizedType");
+        ParameterizedType result = (ParameterizedType) theClass.getGenericSuperclass();
+        return result;
     }
 
 }
