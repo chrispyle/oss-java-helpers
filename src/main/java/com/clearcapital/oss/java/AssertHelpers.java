@@ -41,4 +41,8 @@ public class AssertHelpers {
     private static Boolean checkIsNull(final Object object) {
         return (object == null);
     }
+
+    public static void fail(String string) throws AssertException {
+        throw new AssertException(string);
+    }
 }
