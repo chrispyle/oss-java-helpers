@@ -26,7 +26,7 @@ public class JsonSerializer implements Serializer {
 
     private final static JsonSerializer INSTANCE = new JsonSerializer();
 
-    final ObjectMapper objectMapper;
+    ObjectMapper objectMapper;
 
     public JsonSerializer() {
         objectMapper = configureObjectMapper(new ObjectMapper());
@@ -109,6 +109,10 @@ public class JsonSerializer implements Serializer {
         for (Class<?> jsonType : result) {
             mapper.registerSubtypes(jsonType);
         }
+    }
+
+    public void setObjectMapper(ObjectMapper mapper) {
+        objectMapper = mapper;
     }
 
 }
