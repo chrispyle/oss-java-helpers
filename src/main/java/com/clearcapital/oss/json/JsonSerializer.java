@@ -26,7 +26,7 @@ public class JsonSerializer implements Serializer {
 
     private final static JsonSerializer INSTANCE = new JsonSerializer();
 
-    final ObjectMapper objectMapper;
+    ObjectMapper objectMapper;
 
     public JsonSerializer() {
         objectMapper = configureObjectMapper(new ObjectMapper());
@@ -38,6 +38,7 @@ public class JsonSerializer implements Serializer {
         mapper.configure(SerializationFeature.FAIL_ON_EMPTY_BEANS, false);
         mapper.configure(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS, true);
         mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        mapper.enable(DeserializationFeature.ACCEPT_EMPTY_STRING_AS_NULL_OBJECT);
 
         SerializerProvider sp = mapper.getSerializerProvider();
         if (sp == null) {
@@ -49,10 +50,10 @@ public class JsonSerializer implements Serializer {
 
         SimpleModule globalSerializers = new SimpleModule();
         globalSerializers.addSerializer(Long.class, ToStringSerializer.instance);
-        mapper.registerModule(globalSerializers);
-        
-        mapper.registerModule(new GuavaModule());
 
+        // Polymorphic Json is a Good Thing™.
+        mapper.registerModule(globalSerializers);
+        mapper.registerModule(new GuavaModule());
         registerSubTypes(mapper, "/");
 
         return mapper;
@@ -65,7 +66,7 @@ public class JsonSerializer implements Serializer {
     public ObjectMapper getObjectMapper() {
         return objectMapper;
     }
-    
+
     @Override
     public <T> T getObject(String jsonRepresentation, Class<T> targetType) throws DeserializingException {
         if (jsonRepresentation == null || targetType == null) {
@@ -108,6 +109,10 @@ public class JsonSerializer implements Serializer {
         for (Class<?> jsonType : result) {
             mapper.registerSubtypes(jsonType);
         }
+    }
+
+    public void setObjectMapper(ObjectMapper mapper) {
+        objectMapper = mapper;
     }
 
 }
